@@ -10,13 +10,13 @@ const pool = new Pool({
 const createUserTable = async () => {
     const queryText = `
         CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            email VARCHAR(255) UNIQUE NOT NULL,
+                                             id SERIAL PRIMARY KEY,
+                                             email VARCHAR(255) UNIQUE NOT NULL,
             username VARCHAR(255) NOT NULL,
             password VARCHAR(255) NOT NULL,
             avatar_url VARCHAR(255) DEFAULT '/default_avatar.png',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            );
     `;
     try {
         await pool.query(queryText);
@@ -35,7 +35,7 @@ const addUser = async (email, username, password, avatarUrl) => {
     const queryText = `
         INSERT INTO users (email, username, password, avatar_url)
         VALUES ($1, $2, $3, $4)
-        RETURNING *;
+            RETURNING *;
     `;
     const values = [email, username, hashedPassword, avatarUrl];
     try {
