@@ -140,6 +140,7 @@ app.post('/register', upload.none(), async (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
+    console.log('收到登录请求:', req.body);
     const { email, password } = req.body;
 
     try {
@@ -153,12 +154,14 @@ app.post('/login', async (req, res) => {
         if (!isMatch) {
             return res.status(400).json({ message: '密码错误' });
         }
-
-        const token = jwt.sign({ id: user.id }, '你的密钥', { expiresIn: '1h' });
+        console.log('用户验证成功,准备发送响应:', {
+            message: '登录成功',
+            avatarUrl: user.avatar_url,
+            username: user.username
+        });
 
         res.status(200).json({
             message: '登录成功',
-            token: token,
             avatarUrl: user.avatar_url,
             username: user.username
         });
