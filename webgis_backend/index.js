@@ -6,16 +6,24 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { addUser, getUserByEmail } = require('./models/userModel');
+const { addUser, getUserByEmail, getUserByUsername } = require('./models/userModel');
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
 const port = 3000;
 
-app.use(cors());
+app.use(cors({
+    origin: 'http://localhost:8080',  // 你的前端URL
+    credentials: true
+}));
 app.use(bodyParser.json());
 
 // 设置静态文件路径
-app.use('/uploads', express.static(path.join(__dirname, '..', 'upload')));
+app.use('/uploads', (req, res, next) => {
+    console.log('Requested file:', req.url);
+    next();
+}, express.static(path.join(__dirname, '..', 'upload')));
 
 // 配置 multer 存储选项
 const tempStorage = multer.diskStorage({
@@ -36,6 +44,20 @@ const upload = multer({ storage: tempStorage });
 // 用于存储上传文件的定时器
 const fileTimers = new Map();
 
+// 创建 HTTP 服务器
+const server = http.createServer(app);
+
+// 创建 WebSocket 服务器
+const wss = new WebSocket.Server({ server });
+
+// 存储 WebSocket 连接
+const clients = new Set();
+
+wss.on('connection', (ws) => {
+    clients.add(ws);
+    ws.on('close', () => clients.delete(ws));
+});
+
 app.post('/upload-avatar', upload.single('file'), (req, res) => {
     try {
         if (!req.file) {
@@ -51,8 +73,15 @@ app.post('/upload-avatar', upload.single('file'), (req, res) => {
             if (fs.existsSync(tempFilePath)) {
                 fs.unlinkSync(tempFilePath);
                 console.log(`Temp file ${tempFilePath} deleted after timeout.`);
+
+                // 通知所有连接的客户端
+                clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({ type: 'FILE_DELETED', filename: req.file.filename }));
+                    }
+                });
             }
-        }, 30 * 1000); // 5分钟后删除
+        }, 30 * 1000); // 30 秒后删除
 
         fileTimers.set(req.file.filename, timer);
 
@@ -98,6 +127,11 @@ app.post('/register', upload.none(), async (req, res) => {
         const existingUser = await getUserByEmail(email);
         if (existingUser) {
             return res.status(400).json({ message: 'Email already registered. Please log in.' });
+        }
+
+        const existingUsername = await getUserByUsername(username);
+        if (existingUsername) {
+            return res.status(400).json({ message: 'Username already taken. Please choose another.' });
         }
 
         let avatarUrl = '/uploads/default_avatar.png';
@@ -171,6 +205,6 @@ app.post('/login', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });

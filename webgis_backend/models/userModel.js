@@ -10,13 +10,13 @@ const pool = new Pool({
 const createUserTable = async () => {
     const queryText = `
         CREATE TABLE IF NOT EXISTS users (
-                                             id SERIAL PRIMARY KEY,
-                                             email VARCHAR(255) UNIQUE NOT NULL,
-            username VARCHAR(255) NOT NULL,
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            username VARCHAR(255) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
             avatar_url VARCHAR(255) DEFAULT '/default_avatar.png',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
+        );
     `;
     try {
         await pool.query(queryText);
@@ -35,7 +35,7 @@ const addUser = async (email, username, password, avatarUrl) => {
     const queryText = `
         INSERT INTO users (email, username, password, avatar_url)
         VALUES ($1, $2, $3, $4)
-            RETURNING *;
+        RETURNING *;
     `;
     const values = [email, username, hashedPassword, avatarUrl];
     try {
@@ -61,8 +61,22 @@ const getUserByEmail = async (email) => {
     }
 };
 
+const getUserByUsername = async (username) => {
+    const queryText = `
+        SELECT * FROM users WHERE username = $1;
+    `;
+    try {
+        const res = await pool.query(queryText, [username]);
+        return res.rows[0]; // 返回用户信息（如果存在）
+    } catch (err) {
+        console.error('Error fetching user by username', err);
+        throw err;
+    }
+};
+
 module.exports = {
     createUserTable,
     addUser,
-    getUserByEmail, // 导出 getUserByEmail 函数
+    getUserByEmail,
+    getUserByUsername,
 };
