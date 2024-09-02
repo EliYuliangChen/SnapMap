@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { addUser, getUserByEmail, getUserByUsername } = require('./models/userModel');
+const { addUser, getUserByEmail, getUserByUsername, updateUsername, updatePassword, updateAvatarUrl, getUserById } = require('./models/userModel');
 const WebSocket = require('ws');
 const http = require('http');
 
@@ -190,18 +190,93 @@ app.post('/login', async (req, res) => {
         }
         console.log('用户验证成功,准备发送响应:', {
             message: '登录成功',
+            id: user.id,
             avatarUrl: user.avatar_url,
             username: user.username
         });
 
         res.status(200).json({
             message: '登录成功',
+            id: user.id,
             avatarUrl: user.avatar_url,
             username: user.username
         });
     } catch (error) {
         console.error('登录错误:', error);
         res.status(500).json({ message: '服务器错误', error: error.message });
+    }
+});
+
+app.post('/api/update-username', async (req, res) => {
+    const { userId, newUsername } = req.body;
+    console.log('Received update username request:', { userId, newUsername });
+    if (!userId || isNaN(parseInt(userId))) {
+        return res.status(400).json({ message: '无效的用户ID' });
+    }
+    try {
+        const existingUser = await getUserByUsername(newUsername);
+        if (existingUser && existingUser.id !== parseInt(userId)) {
+            console.log('Username already exists:', newUsername);
+            return res.status(409).json({ message: '用户名已存在' });
+        }
+        const updatedUser = await updateUsername(parseInt(userId), newUsername);
+        console.log('Username updated successfully:', updatedUser);
+        res.status(200).json({ success: true, message: '用户名更新成功', user: updatedUser });
+    } catch (error) {
+        console.error('Error updating username:', error);
+        res.status(500).json({ message: '更新用户名失败', error: error.message });
+    }
+});
+
+app.post('/api/change-password', async (req, res) => {
+    const { userId, currentPassword, newPassword } = req.body;
+    try {
+        const user = await getUserById(userId);
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: '当前密码不正确' });
+        }
+        await updatePassword(userId, newPassword);
+        res.status(200).json({ success: true, message: '密码更新成功' });
+    } catch (error) {
+        console.error('Error changing password:', error);
+        res.status(500).json({ message: '更改密码失败', error: error.message });
+    }
+});
+
+app.post('/api/upload-avatar', upload.single('avatar'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const { userId } = req.body;
+    const avatarUrl = `/uploads/avatar/${req.file.filename}`;
+
+    try {
+        await updateAvatarUrl(userId, avatarUrl);
+        res.status(200).json({ success: true, avatarUrl: avatarUrl });
+    } catch (error) {
+        console.error('Error uploading avatar:', error);
+        res.status(500).json({ message: '上传头像失败', error: error.message });
+    }
+});
+
+app.get('/api/user/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    try {
+        const user = await getUserById(parseInt(userId));
+        if (!user) {
+            return res.status(404).json({ message: '用户不存在' });
+        }
+        res.json({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            avatarUrl: user.avatar_url
+        });
+    } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).json({ message: '获取用户信息失败', error: error.message });
     }
 });
 

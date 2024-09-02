@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+
 const pool = new Pool({
     user: 'postgres',
     host: 'localhost',
@@ -74,9 +75,79 @@ const getUserByUsername = async (username) => {
     }
 };
 
+const updateUsername = async (userId, newUsername) => {
+    const queryText = `
+        UPDATE users
+        SET username = $1
+        WHERE id = $2
+            RETURNING *;
+    `;
+    try {
+        const res = await pool.query(queryText, [newUsername, userId]);
+        if (res.rows.length === 0) {
+            throw new Error('User not found');
+        }
+        console.log('User updated in database:', res.rows[0]);
+        return res.rows[0];
+    } catch (err) {
+        console.error('Error updating username', err);
+        throw err;
+    }
+};
+
+const updatePassword = async (userId, newPassword) => {
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+    const queryText = `
+        UPDATE users
+        SET password = $1
+        WHERE id = $2
+        RETURNING *;
+    `;
+    try {
+        const res = await pool.query(queryText, [hashedPassword, userId]);
+        return res.rows[0];
+    } catch (err) {
+        console.error('Error updating password', err);
+        throw err;
+    }
+};
+
+const updateAvatarUrl = async (userId, avatarUrl) => {
+    const queryText = `
+        UPDATE users
+        SET avatar_url = $1
+        WHERE id = $2
+        RETURNING *;
+    `;
+    try {
+        const res = await pool.query(queryText, [avatarUrl, userId]);
+        return res.rows[0];
+    } catch (err) {
+        console.error('Error updating avatar URL', err);
+        throw err;
+    }
+};
+
+const getUserById = async (id) => {
+    const queryText = `
+        SELECT * FROM users WHERE id = $1;
+    `;
+    try {
+        const res = await pool.query(queryText, [id]);
+        return res.rows[0];
+    } catch (err) {
+        console.error('Error fetching user by id', err);
+        throw err;
+    }
+};
+
 module.exports = {
     createUserTable,
     addUser,
     getUserByEmail,
     getUserByUsername,
+    updateUsername,
+    updatePassword,
+    updateAvatarUrl,
+    getUserById
 };
