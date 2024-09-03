@@ -244,22 +244,44 @@ app.post('/api/change-password', async (req, res) => {
     }
 });
 
-app.post('/api/upload-avatar', upload.single('avatar'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded' });
-    }
-
-    const { userId } = req.body;
-    const avatarUrl = `/uploads/avatar/${req.file.filename}`;
-
+app.post('/upload-avatar', upload.single('file'), (req, res) => {
     try {
-        await updateAvatarUrl(userId, avatarUrl);
-        res.status(200).json({ success: true, avatarUrl: avatarUrl });
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        const tempAvatarUrl = `/uploads/temp/${req.file.filename}`;
+        const tempFilePath = path.join(__dirname, '..', 'upload', 'temp', req.file.filename);
+
+        console.log('File path on server:', tempFilePath);
+
+        // 用于删除临时文件的计时器
+        const timer = setTimeout(() => {
+            if (fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+                console.log(`Temp file ${tempFilePath} deleted after timeout.`);
+
+                // 通知所有连接的客户端
+                clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({ type: 'FILE_DELETED', filename: req.file.filename }));
+                    }
+                });
+            }
+        }, 30 * 1000); // 30 秒后删除
+
+        fileTimers.set(req.file.filename, timer);
+
+        console.log('File uploaded to:', tempAvatarUrl);
+
+        // 返回正确的文件路径
+        res.status(200).json({ tempAvatarUrl });
     } catch (error) {
-        console.error('Error uploading avatar:', error);
-        res.status(500).json({ message: '上传头像失败', error: error.message });
+        console.error('Error during file upload:', error);
+        res.status(500).json({ message: 'File upload failed', error: error.message });
     }
 });
+
 
 app.get('/api/user/:userId', async (req, res) => {
     const userId = req.params.userId;
