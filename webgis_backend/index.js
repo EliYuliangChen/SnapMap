@@ -124,6 +124,8 @@ app.post('/update-avatar', verifyToken, async (req, res) => {
 
         // 确定旧头像路径
         const oldAvatarUrl = user.avatar_url;
+        console.log('old: ' + oldAvatarUrl)
+        console.log('new:' + newAvatar)
 
         // 新的头像路径
         let avatarUrl = '/uploads/default_avatar.png';
@@ -140,6 +142,7 @@ app.post('/update-avatar', verifyToken, async (req, res) => {
                 // 将临时头像文件移动到avatar文件夹
                 fs.renameSync(tempPath, finalPath);
                 avatarUrl = `/uploads/avatar/${newAvatar}`;
+                console.log('Transfer file success!')
             } else {
                 console.log(`Temp file ${tempPath} does not exist.`);
                 return res.status(400).json({ message: '临时文件不存在' });
@@ -198,6 +201,35 @@ app.post('/delete-temp-avatar', verifyToken, (req, res) => {
 
     res.status(200).json({ message: 'Temp avatar deleted.' });
 });
+
+app.post('/delete-temp-avatar-unauth', handleDeleteTempAvatar);
+
+// 抽取共同的处理逻辑
+function handleDeleteTempAvatar(req, res) {
+    const { tempAvatarUrl } = req.body;
+    if (!tempAvatarUrl) {
+        return res.status(400).json({ message: 'No tempAvatarUrl provided' });
+    }
+
+    const tempFileName = path.basename(tempAvatarUrl);
+    const tempFilePath = path.join(__dirname, '..', 'upload', 'temp', tempFileName);
+
+    console.log('Attempting to delete:', tempFilePath);
+
+    if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+        console.log(`Temp file ${tempFilePath} deleted.`);
+    } else {
+        console.log(`File ${tempFilePath} does not exist.`);
+    }
+
+    if (fileTimers.has(tempFileName)) {
+        clearTimeout(fileTimers.get(tempFileName));
+        fileTimers.delete(tempFileName);
+    }
+
+    res.status(200).json({ message: 'Temp avatar deleted.' });
+}
 
 app.post('/register', upload.none(), async (req, res) => {
     const { email, username, password, avatar } = req.body;
