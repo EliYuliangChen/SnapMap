@@ -13,6 +13,8 @@ const http = require('http');
 const app = express();
 const port = 3000;
 
+const JWT_SECRET = 'stop_attacking_my_website';
+
 app.use(cors({
     origin: 'http://localhost:8080',  // 你的前端URL
     credentials: true
@@ -58,6 +60,22 @@ wss.on('connection', (ws) => {
     ws.on('close', () => clients.delete(ws));
 });
 
+// 验证token的中间件
+const verifyToken = (req, res, next) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ message: '未提供token' });
+    }
+
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).json({ message: 'token无效' });
+        }
+        req.user = decoded;
+        next();
+    });
+};
+
 app.post('/upload-avatar', upload.single('file'), (req, res) => {
     try {
         if (!req.file) {
@@ -94,7 +112,68 @@ app.post('/upload-avatar', upload.single('file'), (req, res) => {
     }
 });
 
-app.post('/delete-temp-avatar', (req, res) => {
+app.post('/update-avatar', verifyToken, async (req, res) => {
+    const { userId, newAvatar } = req.body;
+
+    try {
+        // 获取用户信息
+        const user = await getUserById(userId);
+        if (!user) {
+            return res.status(404).json({ message: '用户不存在' });
+        }
+
+        // 确定旧头像路径
+        const oldAvatarUrl = user.avatar_url;
+
+        // 新的头像路径
+        let avatarUrl = '/uploads/default_avatar.png';
+
+        if (newAvatar) {
+            const tempPath = path.join(__dirname, '..', 'upload', 'temp', newAvatar);
+            const avatarPath = path.join(__dirname, '..', 'upload', 'avatar');
+            if (!fs.existsSync(avatarPath)) {
+                fs.mkdirSync(avatarPath, { recursive: true });
+            }
+            const finalPath = path.join(avatarPath, newAvatar);
+
+            if (fs.existsSync(tempPath)) {
+                // 将临时头像文件移动到avatar文件夹
+                fs.renameSync(tempPath, finalPath);
+                avatarUrl = `/uploads/avatar/${newAvatar}`;
+            } else {
+                console.log(`Temp file ${tempPath} does not exist.`);
+                return res.status(400).json({ message: '临时文件不存在' });
+            }
+
+            // 清除定时删除任务
+            if (fileTimers.has(newAvatar)) {
+                clearTimeout(fileTimers.get(newAvatar));
+                fileTimers.delete(newAvatar);
+            }
+        }
+
+        // 删除旧头像文件
+        if (oldAvatarUrl && oldAvatarUrl !== '/upload/default_avatar.png') {
+            const oldAvatarPath = path.join(__dirname, '..', 'upload', 'avatar', path.basename(oldAvatarUrl));
+            if (fs.existsSync(oldAvatarPath)) {
+                fs.unlinkSync(oldAvatarPath);
+                console.log(`Old avatar file ${oldAvatarPath} deleted.`);
+            } else {
+                console.log(`Old avatar file ${oldAvatarPath} does not exist.`);
+            }
+        }
+
+        // 更新数据库中的头像URL
+        await updateAvatarUrl(userId, avatarUrl);
+
+        res.status(200).json({ message: '头像更新成功', avatarUrl });
+    } catch (error) {
+        console.error('Error updating avatar:', error);
+        res.status(500).json({ message: '更新头像失败', error: error.message });
+    }
+});
+
+app.post('/delete-temp-avatar', verifyToken, (req, res) => {
     const { tempAvatarUrl } = req.body;
     if (!tempAvatarUrl) {
         return res.status(400).json({ message: 'No tempAvatarUrl provided' });
@@ -188,18 +267,27 @@ app.post('/login', async (req, res) => {
         if (!isMatch) {
             return res.status(400).json({ message: '密码错误' });
         }
+
+        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+
         console.log('用户验证成功,准备发送响应:', {
             message: '登录成功',
-            id: user.id,
-            avatarUrl: user.avatar_url,
-            username: user.username
+            token, // 返回JWT Token
+            user: {
+                id: user.id,
+                username: user.username,
+                avatarUrl: user.avatar_url,
+            }
         });
 
         res.status(200).json({
             message: '登录成功',
-            id: user.id,
-            avatarUrl: user.avatar_url,
-            username: user.username
+            token, // 返回JWT Token
+            user: {
+                id: user.id,
+                username: user.username,
+                avatarUrl: user.avatar_url,
+            }
         });
     } catch (error) {
         console.error('登录错误:', error);
@@ -207,7 +295,7 @@ app.post('/login', async (req, res) => {
     }
 });
 
-app.post('/api/update-username', async (req, res) => {
+app.post('/api/update-username', verifyToken, async (req, res) => {
     const { userId, newUsername } = req.body;
     console.log('Received update username request:', { userId, newUsername });
     if (!userId || isNaN(parseInt(userId))) {
@@ -228,7 +316,7 @@ app.post('/api/update-username', async (req, res) => {
     }
 });
 
-app.post('/api/change-password', async (req, res) => {
+app.post('/api/change-password', verifyToken, async (req, res) => {
     const { userId, currentPassword, newPassword } = req.body;
     try {
         const user = await getUserById(userId);
@@ -244,49 +332,51 @@ app.post('/api/change-password', async (req, res) => {
     }
 });
 
-app.post('/upload-avatar', upload.single('file'), (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ message: 'No file uploaded' });
-        }
+// app.post('/upload-avatar', upload.single('file'), (req, res) => {
+//     try {
+//         if (!req.file) {
+//             return res.status(400).json({ message: 'No file uploaded' });
+//         }
+//
+//         const tempAvatarUrl = `/uploads/temp/${req.file.filename}`;
+//         const tempFilePath = path.join(__dirname, '..', 'upload', 'temp', req.file.filename);
+//
+//         console.log('File path on server:', tempFilePath);
+//
+//         // 用于删除临时文件的计时器
+//         const timer = setTimeout(() => {
+//             if (fs.existsSync(tempFilePath)) {
+//                 fs.unlinkSync(tempFilePath);
+//                 console.log(`Temp file ${tempFilePath} deleted after timeout.`);
+//
+//                 // 通知所有连接的客户端
+//                 clients.forEach(client => {
+//                     if (client.readyState === WebSocket.OPEN) {
+//                         client.send(JSON.stringify({ type: 'FILE_DELETED', filename: req.file.filename }));
+//                     }
+//                 });
+//             }
+//         }, 30 * 1000); // 30 秒后删除
+//
+//         fileTimers.set(req.file.filename, timer);
+//
+//         console.log('File uploaded to:', tempAvatarUrl);
+//
+//         // 返回正确的文件路径
+//         res.status(200).json({ tempAvatarUrl });
+//     } catch (error) {
+//         console.error('Error during file upload:', error);
+//         res.status(500).json({ message: 'File upload failed', error: error.message });
+//     }
+// });
 
-        const tempAvatarUrl = `/uploads/temp/${req.file.filename}`;
-        const tempFilePath = path.join(__dirname, '..', 'upload', 'temp', req.file.filename);
 
-        console.log('File path on server:', tempFilePath);
-
-        // 用于删除临时文件的计时器
-        const timer = setTimeout(() => {
-            if (fs.existsSync(tempFilePath)) {
-                fs.unlinkSync(tempFilePath);
-                console.log(`Temp file ${tempFilePath} deleted after timeout.`);
-
-                // 通知所有连接的客户端
-                clients.forEach(client => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(JSON.stringify({ type: 'FILE_DELETED', filename: req.file.filename }));
-                    }
-                });
-            }
-        }, 30 * 1000); // 30 秒后删除
-
-        fileTimers.set(req.file.filename, timer);
-
-        console.log('File uploaded to:', tempAvatarUrl);
-
-        // 返回正确的文件路径
-        res.status(200).json({ tempAvatarUrl });
-    } catch (error) {
-        console.error('Error during file upload:', error);
-        res.status(500).json({ message: 'File upload failed', error: error.message });
-    }
-});
-
-
-app.get('/api/user/:userId', async (req, res) => {
+app.get('/api/user/profile', verifyToken, async (req, res) => {
     const userId = req.params.userId;
     try {
-        const user = await getUserById(parseInt(userId));
+        const userId = req.user.id;  // 确保从 token 解码后的用户 ID 是一个整数
+        console.log('从 token 中获取到的 userId:', userId);  // 打印 userId
+        const user = await getUserById(userId);
         if (!user) {
             return res.status(404).json({ message: '用户不存在' });
         }
