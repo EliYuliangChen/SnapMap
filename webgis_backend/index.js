@@ -350,20 +350,34 @@ app.post('/api/update-username', verifyToken, async (req, res) => {
 
 app.post('/api/change-password', verifyToken, async (req, res) => {
     const { userId, currentPassword, newPassword } = req.body;
+
+    if (!userId || !currentPassword || !newPassword) {
+        return res.status(400).json({ message: '缺少必要的参数' });
+    }
+
     try {
         const user = await getUserById(userId);
+
+        if (!user) {
+            return res.status(404).json({ message: '用户不存在' });
+        }
+
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
-            return res.status(400).json({ message: '当前密码不正确' });
+            return res.status(401).json({ message: '当前密码不正确' });
         }
+
+        // 对新密码进行哈希处理
+        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
         await updatePassword(userId, newPassword);
+        console.log('测试用 - 用户更改后的密码:', newPassword);
         res.status(200).json({ success: true, message: '密码更新成功' });
     } catch (error) {
         console.error('Error changing password:', error);
         res.status(500).json({ message: '更改密码失败', error: error.message });
     }
 });
-
 // app.post('/upload-avatar', upload.single('file'), (req, res) => {
 //     try {
 //         if (!req.file) {
