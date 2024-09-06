@@ -16,6 +16,8 @@ const createUserTable = async () => {
             username VARCHAR(255) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
             avatar_url VARCHAR(255) DEFAULT '/default_avatar.png',
+            security_question VARCHAR(255),
+            security_answer VARCHAR(255),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     `;
