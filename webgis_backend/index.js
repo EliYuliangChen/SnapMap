@@ -6,7 +6,18 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { addUser, getUserByEmail, getUserByUsername, updateUsername, updatePassword, updateAvatarUrl, getUserById } = require('./models/userModel');
+const {
+    addUser,
+    getUserByEmail,
+    getUserByUsername,
+    updateUsername,
+    updatePassword,
+    updateAvatarUrl,
+    getUserById,
+    getSecurityQuestionByEmail,
+    checkSecurityAnswer
+} = require('./models/userModel');
+
 const WebSocket = require('ws');
 const http = require('http');
 
@@ -232,7 +243,7 @@ function handleDeleteTempAvatar(req, res) {
 }
 
 app.post('/register', upload.none(), async (req, res) => {
-    const { email, username, password, avatar } = req.body;
+    const { email, username, password, avatar, securityQuestion, securityAnswer } = req.body;
 
     try {
         const existingUser = await getUserByEmail(email);
@@ -268,7 +279,7 @@ app.post('/register', upload.none(), async (req, res) => {
             }
         }
 
-        const user = await addUser(email, username, password, avatarUrl);
+        const user = await addUser(email, username, password, avatarUrl, securityQuestion, securityAnswer);
         res.status(201).json({ message: 'User registered successfully!', user });
     } catch (error) {
         console.error('Error during registration:', error);
@@ -435,6 +446,56 @@ app.get('/api/user/profile', verifyToken, async (req, res) => {
     } catch (error) {
         console.error('Error fetching user:', error);
         res.status(500).json({ message: '获取用户信息失败', error: error.message });
+    }
+});
+
+// 检查邮箱是否存在，并返回安全问题
+app.post('/api/check-email', async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await getUserByEmail(email);
+        if (!user) {
+            return res.status(404).json({ exists: false, message: '用户不存在' });
+        }
+        const securityQuestion = await getSecurityQuestionByEmail(email);
+        res.status(200).json({ exists: true, securityQuestion: securityQuestion.security_question });
+    } catch (error) {
+        console.error('Error checking email:', error);
+        res.status(500).json({ message: '服务器错误' });
+    }
+});
+
+// 验证安全问题答案
+app.post('/api/check-answer', async (req, res) => {
+    const { email, answer } = req.body;
+    try {
+        const isCorrect = await checkSecurityAnswer(email, answer);
+        if (isCorrect) {
+            res.status(200).json({ correct: true });
+        } else {
+            res.status(400).json({ correct: false, message: '安全问题答案错误' });
+        }
+    } catch (error) {
+        console.error('Error checking security answer:', error);
+        res.status(500).json({ message: '服务器错误' });
+    }
+});
+
+// 重置密码
+app.post('/api/reset-password', async (req, res) => {
+    const { email, newPassword } = req.body;
+    try {
+        const user = await getUserByEmail(email);
+        if (!user) {
+            return res.status(404).json({ message: '用户不存在' });
+        }
+
+        // 更新密码
+        await updatePassword(user.id, newPassword);
+        res.status(200).json({ success: true, message: '密码重置成功' });
+    } catch (error) {
+        console.error('Error resetting password:', error);
+        res.status(500).json({ message: '服务器错误' });
     }
 });
 

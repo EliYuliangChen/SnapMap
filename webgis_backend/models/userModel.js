@@ -32,15 +32,15 @@ const createUserTable = async () => {
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
 
-const addUser = async (email, username, password, avatarUrl) => {
+const addUser = async (email, username, password, avatarUrl, securityQuestion, securityAnswer) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     const queryText = `
-        INSERT INTO users (email, username, password, avatar_url)
-        VALUES ($1, $2, $3, $4)
-        RETURNING *;
-    `;
-    const values = [email, username, hashedPassword, avatarUrl];
+    INSERT INTO users (email, username, password, avatar_url, security_question, security_answer)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *;
+  `;
+    const values = [email, username, hashedPassword, avatarUrl, securityQuestion, securityAnswer];
     try {
         const res = await pool.query(queryText, values);
         console.log('User added to database:', res.rows[0]);
@@ -50,6 +50,7 @@ const addUser = async (email, username, password, avatarUrl) => {
         throw err;
     }
 };
+
 
 const getUserByEmail = async (email) => {
     const queryText = `
@@ -143,6 +144,37 @@ const getUserById = async (id) => {
     }
 };
 
+// 获取用户的安全问题
+const getSecurityQuestionByEmail = async (email) => {
+    const queryText = `
+        SELECT security_question FROM users WHERE email = $1;
+    `;
+    try {
+        const res = await pool.query(queryText, [email]);
+        return res.rows[0]; // 返回安全问题
+    } catch (err) {
+        console.error('Error fetching security question by email', err);
+        throw err;
+    }
+};
+
+// 验证安全问题答案
+const checkSecurityAnswer = async (email, answer) => {
+    const queryText = `
+        SELECT security_answer FROM users WHERE email = $1;
+    `;
+    try {
+        const res = await pool.query(queryText, [email]);
+        if (res.rows.length === 0) {
+            return false; // 如果用户不存在
+        }
+        return res.rows[0].security_answer === answer; // 返回答案是否匹配
+    } catch (err) {
+        console.error('Error checking security answer', err);
+        throw err;
+    }
+};
+
 module.exports = {
     createUserTable,
     addUser,
@@ -151,5 +183,7 @@ module.exports = {
     updateUsername,
     updatePassword,
     updateAvatarUrl,
-    getUserById
+    getUserById,
+    getSecurityQuestionByEmail,  // 新增
+    checkSecurityAnswer  // 新增
 };
