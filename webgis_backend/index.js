@@ -154,9 +154,14 @@ app.post('/update-avatar', verifyToken, upload.single('avatar'), async (req, res
 
             // 删除旧头像文件（如果不是默认头像）
             if (user.avatar_url && user.avatar_url !== '/uploads/default_avatar.png') {
-                const oldAvatarPath = path.join(__dirname, '..', user.avatar_url);
+                console.log('Old avatar URL:', user.avatar_url);
+                const oldAvatarPath = path.join(__dirname, '..', 'upload', 'avatar', path.basename(user.avatar_url)); // 只使用文件名
+                console.log('Attempting to delete old avatar from:', oldAvatarPath);
                 if (fs.existsSync(oldAvatarPath)) {
                     fs.unlinkSync(oldAvatarPath);
+                    console.log(`Deleted old avatar: ${oldAvatarPath}`);
+                } else {
+                    console.log(`Old avatar file does not exist: ${oldAvatarPath}`);
                 }
             }
         }
