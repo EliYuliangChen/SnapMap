@@ -39,20 +39,34 @@ app.use('/uploads', (req, res, next) => {
 }, express.static(path.join(__dirname, '..', 'upload')));
 
 // 配置 multer 存储选项
-const tempStorage = multer.diskStorage({
+// const tempStorage = multer.diskStorage({
+//     destination: function (req, file, cb) {
+//         const tempPath = path.join(__dirname, '..', 'upload', 'temp');
+//         if (!fs.existsSync(tempPath)) {
+//             fs.mkdirSync(tempPath, { recursive: true });
+//         }
+//         cb(null, tempPath);
+//     },
+//     filename: function (req, file, cb) {
+//         cb(null, Date.now() + path.extname(file.originalname));
+//     }
+// });
+
+const avatarStorage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const tempPath = path.join(__dirname, '..', 'upload', 'temp');
-        if (!fs.existsSync(tempPath)) {
-            fs.mkdirSync(tempPath, { recursive: true });
+        const avatarPath = path.join(__dirname, '..', 'upload', 'avatar');
+        if (!fs.existsSync(avatarPath)) {
+            fs.mkdirSync(avatarPath, { recursive: true });
         }
-        cb(null, tempPath);
+        cb(null, avatarPath);
     },
     filename: function (req, file, cb) {
         cb(null, Date.now() + path.extname(file.originalname));
     }
 });
 
-const upload = multer({ storage: tempStorage });
+const upload = multer({ storage: avatarStorage });
+// const upload = multer({ storage: tempStorage });
 
 // 用于存储上传文件的定时器
 const fileTimers = new Map();
@@ -123,57 +137,27 @@ app.post('/upload-avatar', upload.single('file'), (req, res) => {
     }
 });
 
-app.post('/update-avatar', verifyToken, async (req, res) => {
-    const { userId, newAvatar } = req.body;
+app.post('/update-avatar', verifyToken, upload.single('avatar'), async (req, res) => {
+    const userId = req.body.userId;
 
     try {
-        // 获取用户信息
         const user = await getUserById(userId);
         if (!user) {
             return res.status(404).json({ message: '用户不存在' });
         }
 
-        // 确定旧头像路径
-        const oldAvatarUrl = user.avatar_url;
-        console.log('old: ' + oldAvatarUrl)
-        console.log('new:' + newAvatar)
+        let avatarUrl = user.avatar_url; // 默认保持原来的头像
 
-        // 新的头像路径
-        let avatarUrl = '/uploads/default_avatar.png';
+        if (req.file) {
+            // 新头像文件路径
+            avatarUrl = `/uploads/avatar/${req.file.filename}`;
 
-        if (newAvatar) {
-            const tempPath = path.join(__dirname, '..', 'upload', 'temp', newAvatar);
-            const avatarPath = path.join(__dirname, '..', 'upload', 'avatar');
-            if (!fs.existsSync(avatarPath)) {
-                fs.mkdirSync(avatarPath, { recursive: true });
-            }
-            const finalPath = path.join(avatarPath, newAvatar);
-
-            if (fs.existsSync(tempPath)) {
-                // 将临时头像文件移动到avatar文件夹
-                fs.renameSync(tempPath, finalPath);
-                avatarUrl = `/uploads/avatar/${newAvatar}`;
-                console.log('Transfer file success!')
-            } else {
-                console.log(`Temp file ${tempPath} does not exist.`);
-                return res.status(400).json({ message: '临时文件不存在' });
-            }
-
-            // 清除定时删除任务
-            if (fileTimers.has(newAvatar)) {
-                clearTimeout(fileTimers.get(newAvatar));
-                fileTimers.delete(newAvatar);
-            }
-        }
-
-        // 删除旧头像文件
-        if (oldAvatarUrl && oldAvatarUrl !== '/upload/default_avatar.png') {
-            const oldAvatarPath = path.join(__dirname, '..', 'upload', 'avatar', path.basename(oldAvatarUrl));
-            if (fs.existsSync(oldAvatarPath)) {
-                fs.unlinkSync(oldAvatarPath);
-                console.log(`Old avatar file ${oldAvatarPath} deleted.`);
-            } else {
-                console.log(`Old avatar file ${oldAvatarPath} does not exist.`);
+            // 删除旧头像文件（如果不是默认头像）
+            if (user.avatar_url && user.avatar_url !== '/uploads/default_avatar.png') {
+                const oldAvatarPath = path.join(__dirname, '..', user.avatar_url);
+                if (fs.existsSync(oldAvatarPath)) {
+                    fs.unlinkSync(oldAvatarPath);
+                }
             }
         }
 
@@ -242,8 +226,8 @@ function handleDeleteTempAvatar(req, res) {
     res.status(200).json({ message: 'Temp avatar deleted.' });
 }
 
-app.post('/register', upload.none(), async (req, res) => {
-    const { email, username, password, avatar, securityQuestion, securityAnswer } = req.body;
+app.post('/register', upload.single('avatar'), async (req, res) => {
+    const { email, username, password, securityQuestion, securityAnswer } = req.body;
 
     try {
         const existingUser = await getUserByEmail(email);
@@ -258,25 +242,8 @@ app.post('/register', upload.none(), async (req, res) => {
 
         let avatarUrl = '/uploads/default_avatar.png';
 
-        if (avatar) {
-            const tempPath = path.join(__dirname, '..', 'upload', 'temp', avatar);
-            const avatarPath = path.join(__dirname, '..', 'upload', 'avatar');
-            if (!fs.existsSync(avatarPath)) {
-                fs.mkdirSync(avatarPath, { recursive: true });
-            }
-            const finalPath = path.join(avatarPath, avatar);
-
-            if (fs.existsSync(tempPath)) {
-                fs.renameSync(tempPath, finalPath);
-                avatarUrl = `/uploads/avatar/${avatar}`;
-            } else {
-                console.log(`Temp file ${tempPath} does not exist.`);
-            }
-
-            if (fileTimers.has(avatar)) {
-                clearTimeout(fileTimers.get(avatar));
-                fileTimers.delete(avatar);
-            }
+        if (req.file) {
+            avatarUrl = `/uploads/avatar/${req.file.filename}`;
         }
 
         const user = await addUser(email, username, password, avatarUrl, securityQuestion, securityAnswer);
@@ -285,12 +252,9 @@ app.post('/register', upload.none(), async (req, res) => {
         console.error('Error during registration:', error);
         res.status(500).json({ message: 'Error registering user', error: error.message });
 
-        // 如果注册失败，删除可能已经移动的头像文件
-        if (avatar) {
-            const finalPath = path.join(__dirname, '..', 'upload', 'avatar', avatar);
-            if (fs.existsSync(finalPath)) {
-                fs.unlinkSync(finalPath);
-            }
+        // 如果注册失败，删除已上传的头像文件
+        if (req.file) {
+            fs.unlinkSync(req.file.path);
         }
     }
 });
