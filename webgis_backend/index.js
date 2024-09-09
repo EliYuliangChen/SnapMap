@@ -27,7 +27,7 @@ const port = 3000;
 const JWT_SECRET = 'stop_attacking_my_website';
 
 app.use(cors({
-    origin: 'http://localhost:8080',  // 你的前端URL
+    origin: 'http://192.168.68.103:8080',  // 你的前端URL
     credentials: true
 }));
 app.use(bodyParser.json());
