@@ -18,6 +18,8 @@ const {
     checkSecurityAnswer
 } = require('./models/userModel');
 
+const { addMarker, getAllMarkers } = require('./models/markerModel');
+
 const WebSocket = require('ws');
 const http = require('http');
 
@@ -67,6 +69,21 @@ const avatarStorage = multer.diskStorage({
 
 const upload = multer({ storage: avatarStorage });
 // const upload = multer({ storage: tempStorage });
+
+const markerStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const markerPath = path.join(__dirname, '..', 'upload', 'location'); // 上传到 location 文件夹
+        if (!fs.existsSync(markerPath)) {
+            fs.mkdirSync(markerPath, { recursive: true });
+        }
+        cb(null, markerPath);
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname)); // 使用当前时间戳加文件扩展名命名文件
+    }
+});
+
+const uploadMarker = multer({ storage: markerStorage });
 
 // 用于存储上传文件的定时器
 const fileTimers = new Map();
@@ -465,6 +482,19 @@ app.post('/api/reset-password', async (req, res) => {
     } catch (error) {
         console.error('Error resetting password:', error);
         res.status(500).json({ message: '服务器错误' });
+    }
+});
+
+app.post('/api/markers', verifyToken, uploadMarker.single('image'), async (req, res) => {
+    const { name, type, description, lat, lng } = req.body;
+    const userId = req.user.id;
+    const imageUrl = req.file ? `/uploads/location/${req.file.filename}` : null;
+
+    try {
+        const newMarker = await addMarker({ name, type, description, imageUrl, lat, lng, userId });
+        res.status(201).json({ message: '标记点添加成功', newMarker });
+    } catch (error) {
+        res.status(500).json({ message: '标记点创建失败', error: error.message });
     }
 });
 
